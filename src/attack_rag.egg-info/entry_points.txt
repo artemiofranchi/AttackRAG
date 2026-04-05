@@ -1,0 +1,6 @@
+[console_scripts]
+attack-rag-build-index = attackrag.cli.build_index:main
+attack-rag-fetch-wikipedia = attackrag.cli.corpus.fetch_wikipedia:main
+attack-rag-plot-metrics = attackrag.cli.plot_metrics:main
+attack-rag-run-attacks = attackrag.cli.run_attacks:main
+attack-rag-run-ragas = attackrag.cli.run_ragas:main

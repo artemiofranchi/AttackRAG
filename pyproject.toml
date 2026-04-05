@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "attack-rag"
+version = "0.1.0"
+description = "RAG baseline + RAGAS evaluation + future attack/defense hooks"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=1.26",
+    "scikit-learn>=1.4.0",
+    "sentence-transformers>=3.0.0",
+    "torch",
+    "openai>=1.40",
+    "httpx>=0.27",
+    "python-dotenv>=1.0",
+    "datasets>=2.14",
+    "ragas>=0.1.0",
+    "jsonref>=1.1.0",
+    "streamlit>=1.30",
+    "tiktoken>=0.7",
+    "google-genai>=1.0",
+]
+
+[project.optional-dependencies]
+dev = ["ruff>=0.6"]
+qdrant = ["qdrant-client>=1.12.0"]
+chroma = ["chromadb>=0.5.0"]
+faiss = ["faiss-cpu>=1.8.0"]
+plot = ["matplotlib>=3.8.0"]
+vectors = [
+    "qdrant-client>=1.12.0",
+    "chromadb>=0.5.0",
+    "faiss-cpu>=1.8.0",
+]
+
+[project.scripts]
+attack-rag-build-index = "attackrag.cli.build_index:main"
+attack-rag-run-ragas = "attackrag.cli.run_ragas:main"
+attack-rag-plot-metrics = "attackrag.cli.plot_metrics:main"
+attack-rag-fetch-wikipedia = "attackrag.cli.corpus.fetch_wikipedia:main"
+attack-rag-run-attacks = "attackrag.cli.run_attacks:main"
+attack-rag-run-attack-suite = "attackrag.cli.run_attack_suite:main"
+attack-rag-plot-attacks = "attackrag.cli.plot_attacks:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
