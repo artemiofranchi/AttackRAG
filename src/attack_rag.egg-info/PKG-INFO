@@ -1,3 +1,37 @@
+Metadata-Version: 2.4
+Name: attack-rag
+Version: 0.1.0
+Summary: RAG baseline + RAGAS evaluation + future attack/defense hooks
+Requires-Python: >=3.12
+Description-Content-Type: text/markdown
+Requires-Dist: numpy>=1.26
+Requires-Dist: scikit-learn>=1.4.0
+Requires-Dist: sentence-transformers>=3.0.0
+Requires-Dist: torch
+Requires-Dist: openai>=1.40
+Requires-Dist: httpx>=0.27
+Requires-Dist: python-dotenv>=1.0
+Requires-Dist: datasets>=2.14
+Requires-Dist: ragas>=0.1.0
+Requires-Dist: jsonref>=1.1.0
+Requires-Dist: streamlit>=1.30
+Requires-Dist: tiktoken>=0.7
+Requires-Dist: google-genai>=1.0
+Provides-Extra: dev
+Requires-Dist: ruff>=0.6; extra == "dev"
+Provides-Extra: qdrant
+Requires-Dist: qdrant-client>=1.12.0; extra == "qdrant"
+Provides-Extra: chroma
+Requires-Dist: chromadb>=0.5.0; extra == "chroma"
+Provides-Extra: faiss
+Requires-Dist: faiss-cpu>=1.8.0; extra == "faiss"
+Provides-Extra: plot
+Requires-Dist: matplotlib>=3.8.0; extra == "plot"
+Provides-Extra: vectors
+Requires-Dist: qdrant-client>=1.12.0; extra == "vectors"
+Requires-Dist: chromadb>=0.5.0; extra == "vectors"
+Requires-Dist: faiss-cpu>=1.8.0; extra == "vectors"
+
 # AttackRAG — шаг 1: baseline RAG и RAGAS
 
 Магистерский проект: корпус → индекс → retrieval → генерация → метрики RAGAS на «золотом» наборе вопросов.

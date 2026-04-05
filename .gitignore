@@ -1,0 +1,12 @@
+.env
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+data/index/
+data/corpus_wikipedia/
+data/corpus_merged/
+*.npy
+.DS_Store
+.streamlit/
+runs/
