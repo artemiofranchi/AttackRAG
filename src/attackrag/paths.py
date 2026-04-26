@@ -17,3 +17,19 @@ def default_golden_qa_path() -> Path:
 
 def default_index_dir() -> Path:
     return repo_root() / "data" / "index"
+
+
+def default_corpus_merged_dir() -> Path:
+    return repo_root() / "data" / "corpus_merged"
+
+
+def default_poisoned_index_dir() -> Path:
+    return repo_root() / "data" / "index_poisoned"
+
+
+def default_benign_training_path() -> Path:
+    return repo_root() / "data" / "benign_training.json"
+
+
+def default_leak_patterns_path() -> Path:
+    return repo_root() / "data" / "leak_patterns.yaml"

@@ -36,8 +36,8 @@ def main() -> None:
     parser.add_argument(
         "--defense-profiles",
         type=str,
-        default="none,input,verifier,all,leaksealer,controlnet,ragfort",
-        help="Комма-разделитель: none,input,verifier,all,leaksealer,controlnet,ragfort",
+        default="none,input,verifier,all,ragfort",
+        help="Комма-разделитель: none,input,verifier,all,ragfort (LeakSealer/ControlNET удалены из CLI; см. defenses/_legacy/)",
     )
     parser.add_argument(
         "--guard-context-block",
@@ -74,10 +74,6 @@ def main() -> None:
                 "--guard-context-block",
                 args.guard_context_block,
             ]
-        if profile == "leaksealer":
-            return ["--enable-leaksealer"]
-        if profile == "controlnet":
-            return ["--enable-controlnet"]
         if profile == "ragfort":
             return ["--enable-ragfort", "--guard-output-llm", "--guard-context-block", args.guard_context_block]
         raise ValueError(f"unknown defense profile: {profile}")

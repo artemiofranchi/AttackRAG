@@ -1,0 +1,5 @@
+{
+  "backend": "qdrant",
+  "embedding_model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+  "vector_size": 384
+}

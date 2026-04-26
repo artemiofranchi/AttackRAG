@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from attackrag.rag import RAGPipeline
 
 
-def _find_target_cluster(
+def find_target_cluster(
     labels: np.ndarray,
     chunks: list,
     ground_truth: str,
@@ -34,7 +34,7 @@ def _find_target_cluster(
     return int(labels[best_i])
 
 
-def _nearest_texts_to_centroid(
+def nearest_texts_to_centroid(
     embedder: EmbeddingModel,
     centroid: np.ndarray,
     seeds: list[str],
@@ -97,13 +97,13 @@ def run_secret_lite(
         qid = row.get("id") or ""
         benign = row["question"]
         gt = row["ground_truth"]
-        ci = _find_target_cluster(labels, chunks, gt)
+        ci = find_target_cluster(labels, chunks, gt)
         centroid = centers[ci]
         cluster_idx = [i for i in range(len(chunks)) if int(labels[i]) == ci]
         seeds = [chunks[i].text[:200] for i in cluster_idx[:15]]
 
         for it in range(iterations):
-            retr = _nearest_texts_to_centroid(embedder, centroid, seeds, rng)
+            retr = nearest_texts_to_centroid(embedder, centroid, seeds, rng)
             jail = jail_pool[int(rng.integers(0, len(jail_pool)))]
             ext = ext_pool[int(rng.integers(0, len(ext_pool)))]
             atk = f"{jail} {ext}. Тема/якорь: {retr}\n\nЛегитимный вопрос: {benign}"

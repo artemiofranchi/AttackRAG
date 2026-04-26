@@ -22,10 +22,12 @@ dependencies = [
     "streamlit>=1.30",
     "tiktoken>=0.7",
     "google-genai>=1.0",
+    "qdrant-client>=1.12.0",
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
-dev = ["ruff>=0.6"]
+dev = ["ruff>=0.6", "pytest>=8.0"]
 qdrant = ["qdrant-client>=1.12.0"]
 chroma = ["chromadb>=0.5.0"]
 faiss = ["faiss-cpu>=1.8.0"]
@@ -44,6 +46,10 @@ attack-rag-fetch-wikipedia = "attackrag.cli.corpus.fetch_wikipedia:main"
 attack-rag-run-attacks = "attackrag.cli.run_attacks:main"
 attack-rag-run-attack-suite = "attackrag.cli.run_attack_suite:main"
 attack-rag-plot-attacks = "attackrag.cli.plot_attacks:main"
+attack-rag-benchmark-baseline = "attackrag.cli.benchmark_baseline:main"
+attack-rag-build-merged-corpus = "attackrag.cli.build_merged_corpus:main"
+attack-rag-experiment = "attackrag.cli.run_experiment:main"
+attack-rag-ui = "attackrag.cli.ui:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

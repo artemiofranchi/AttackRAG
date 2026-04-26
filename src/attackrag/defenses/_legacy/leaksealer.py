@@ -1,3 +1,9 @@
+"""
+Историческая реализация LeakSealer-style OOD-прокси.
+Не используется в основном эксперименте; см. docs/agent_prompt_implementation.md
+(модель угроз) и defenses/_legacy/__init__.py.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -28,7 +34,6 @@ class LeakSealerDefense:
         if k == 1:
             centroids = X.mean(axis=0, keepdims=True)
         else:
-            # Легковесная инициализация центроидов (без sklearn dependency здесь).
             rng = np.random.default_rng(seed)
             idx = rng.choice(X.shape[0], size=k, replace=False)
             centroids = X[idx].astype(np.float32, copy=True)
@@ -43,4 +48,3 @@ class LeakSealerDefense:
         q = self._embedder.encode([query])[0]
         d = np.linalg.norm(self._centroids - q[None, :], axis=1)
         return float(d.min()) > self._threshold
-
