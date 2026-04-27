@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 import numpy as np
 from sklearn.cluster import KMeans
 
-from attackrag.attacks.detectors import LeakDetector
 from attackrag.attacks.index_chunks import load_chunks_json
 from attackrag.attacks.types import BestAttackPrompt, TrajectoryStep, TrialRecord
 from attackrag.embeddings import EmbeddingModel
@@ -15,6 +15,8 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from attackrag.rag import RAGPipeline
+
+LeakCheck = Callable[[str, str], bool]
 
 
 def find_target_cluster(
@@ -62,7 +64,7 @@ def run_secret_lite(
     index_dir: Path,
     *,
     embedder: EmbeddingModel,
-    detector: LeakDetector,
+    leak_check: LeakCheck,
     rng: np.random.Generator,
     iterations: int,
     n_clusters: int = 8,
@@ -113,7 +115,7 @@ def run_secret_lite(
             else:
                 answer, _ = query_fn(atk)
             dt_ms = (time.perf_counter() - t0) * 1000.0
-            leaked = detector.is_leak(gt, answer)
+            leaked = leak_check(answer, gt)
             trial_rows.append(
                 TrialRecord(
                     question_id=str(qid),

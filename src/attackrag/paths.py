@@ -33,3 +33,7 @@ def default_benign_training_path() -> Path:
 
 def default_leak_patterns_path() -> Path:
     return repo_root() / "data" / "leak_patterns.yaml"
+
+
+def default_s_priv_config_path() -> Path:
+    return repo_root() / "data" / "s_priv.yaml"

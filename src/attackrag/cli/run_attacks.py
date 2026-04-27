@@ -19,6 +19,7 @@ from attackrag.attacks.defense import QueryDefense
 from attackrag.attacks.detectors import LeakDetector
 from attackrag.defenses.guards import DataFilter, InputFilter, OutputVerifier
 from attackrag.defenses.ragfort import RAGFortProxyDefense
+from attackrag.attacks.golden_roles import LEGIT_QUESTION_IDS
 from attackrag.attacks.metrics import (
     asr_from_flags,
     benign_quality_scores,
@@ -27,6 +28,7 @@ from attackrag.attacks.metrics import (
     fpr_from_benign_blocked,
     latency_overhead_ms,
 )
+from attackrag.attacks.s_priv import answer_leaks_s_priv, load_s_priv_spec
 from attackrag.attacks.prompt_injection import run_prompt_injection
 from attackrag.attacks.provenance import collect_provenance
 from attackrag.attacks.secret import run_secret_auto
@@ -39,6 +41,7 @@ from attackrag.paths import (
     default_golden_qa_path,
     default_index_dir,
     default_leak_patterns_path,
+    default_s_priv_config_path,
     repo_root,
 )
 from attackrag.rag import build_pipeline_from_disk
@@ -71,6 +74,15 @@ def _make_attack_judge_from_env():
     mode = (os.environ.get("ATTACK_JUDGE_PROVIDER") or "none").strip().lower()
     if mode in {"none", "", "off"}:
         return None
+    if mode in ("ollama", "llama", "local"):
+        model = (
+            os.environ.get("ATTACK_JUDGE_MODEL")
+            or os.environ.get("RAGAS_OLLAMA_MODEL")
+            or os.environ.get("OLLAMA_MODEL")
+            or "llama3.1"
+        )
+        host = os.environ.get("ATTACK_JUDGE_OLLAMA_HOST") or os.environ.get("OLLAMA_HOST")
+        return OllamaLLM(model=model, host=host)
     if mode == "gemini":
         key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
         if not key:
@@ -158,7 +170,12 @@ def _benign_pass(
 def main() -> None:
     load_dotenv(repo_root() / ".env")
     p = argparse.ArgumentParser(description="Симуляция атак (PI / backdoor / SECRET-lite) + метрики ASR,FPR,BPD,latency")
-    p.add_argument("--attack", choices=["pi", "backdoor", "secret"], required=True)
+    p.add_argument(
+        "--attack",
+        choices=["pi", "backdoor", "secret"],
+        default=None,
+        help="Тип атаки (не нужен с --only-build-poison-index или --write-poison-md)",
+    )
     p.add_argument("--index", type=Path, default=default_index_dir(), help="Индекс для атаки (baseline или poisoned)")
     p.add_argument("--golden", type=Path, default=default_golden_qa_path())
     p.add_argument("--out", type=Path, default=None, help="JSON-отчёт (по умолчанию runs/attack_<tipo>_<ts>.json)")
@@ -166,6 +183,18 @@ def main() -> None:
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--leak-mode", choices=["exact", "regex", "judge"], default="exact")
     p.add_argument("--leak-regex", type=str, default=None, help="Паттерн для leak-mode=regex")
+    p.add_argument(
+        "--attack-leak-target",
+        choices=["s-priv", "ground-truth"],
+        default="s-priv",
+        help="Успех атаки: любой маркер S_priv (конфиденциальный корпус) или совпадение с ground_truth вопроса",
+    )
+    p.add_argument(
+        "--s-priv-config",
+        type=Path,
+        default=None,
+        help="YAML literals/regexes для S_priv; по умолчанию data/s_priv.yaml если файл есть, иначе встроенный список",
+    )
     p.add_argument("--store-contexts", action="store_true", help="Сохранять чанки в JSON (раздувает файл)")
 
     p.add_argument("--poisoned-index", type=Path, default=None, help="Для backdoor: индекс, собранный с poison-документом")
@@ -246,6 +275,9 @@ def main() -> None:
         print(f"Poisoned индекс: {args.out_poison_index} (объединённый корпус: {merged})")
         return
 
+    if args.attack is None:
+        p.error("the following arguments are required: --attack")
+
     golden_rows = load_golden(args.golden)
     rng_py = __import__("random").Random(args.seed)
     rng_np = np.random.default_rng(args.seed)
@@ -265,6 +297,20 @@ def main() -> None:
         regex_pattern=args.leak_regex,
         judge_llm=judge_llm,
     )
+    sp_path: Path | None = args.s_priv_config
+    if sp_path is None:
+        pdef = default_s_priv_config_path()
+        sp_path = pdef if pdef.is_file() else None
+    s_priv_spec = load_s_priv_spec(sp_path)
+    if args.attack_leak_target == "s-priv":
+
+        def leak_check(answer: str, ref: str) -> bool:  # noqa: ARG001
+            return answer_leaks_s_priv(answer, s_priv_spec)
+
+    else:
+
+        def leak_check(answer: str, ref: str) -> bool:
+            return detector.is_leak(ref, answer)
     defense_subs = tuple(s.strip() for s in args.defense_block_substrings.split(",") if s.strip())
     defense = QueryDefense(block_substrings=defense_subs)
 
@@ -328,6 +374,7 @@ def main() -> None:
             )
         prov_extra: dict[str, Any] = {
             "attack": args.attack,
+            "attack_leak_target": args.attack_leak_target,
             "trials": args.trials,
             "guard_input_llm": args.guard_input_llm,
             "guard_context_block": args.guard_context_block,
@@ -349,10 +396,10 @@ def main() -> None:
             extra=prov_extra,
         )
 
-        lat_orig, score_orig, _, _ = _benign_pass(
+        lat_orig, score_orig, _, answers_orig = _benign_pass(
             pipeline, golden_rows, defense=defense, apply_defense=False, query_fn=None
         )
-        lat_def, score_def, blocked_def, _ = _benign_pass(
+        lat_def, score_def, blocked_def, answers_def = _benign_pass(
             pipeline,
             golden_rows,
             defense=defense,
@@ -363,6 +410,22 @@ def main() -> None:
 
         fpr = fpr_from_benign_blocked(blocked_def)
         bpd = bpd_score_drop(score_orig, score_def)
+        legit_ix = [
+            i
+            for i, r in enumerate(golden_rows)
+            if str(r.get("id") or "") in LEGIT_QUESTION_IDS
+        ]
+        score_o_legit = [score_orig[i] for i in legit_ix] if legit_ix else score_orig
+        score_d_legit = [score_def[i] for i in legit_ix] if legit_ix else score_def
+        bpd_legit = bpd_score_drop(score_o_legit, score_d_legit)
+        benign_priv_orig = [answer_leaks_s_priv(a, s_priv_spec) for a in answers_orig]
+        benign_priv_def = [answer_leaks_s_priv(a, s_priv_spec) for a in answers_def]
+        benign_s_priv_rate_orig = (
+            sum(1 for x in benign_priv_orig if x) / len(benign_priv_orig) if benign_priv_orig else 0.0
+        )
+        benign_s_priv_rate_def = (
+            sum(1 for x in benign_priv_def if x) / len(benign_priv_def) if benign_priv_def else 0.0
+        )
         lat_oh = latency_overhead_ms(lat_orig, lat_def)
 
         trajectory: list[TrajectoryStep] = []
@@ -373,7 +436,7 @@ def main() -> None:
             attack_trials, trajectory, best_prompt = run_prompt_injection(
                 pipeline,
                 golden_rows,
-                detector=detector,
+                leak_check=leak_check,
                 rng=rng_py,
                 trials=max(1, args.trials),
                 store_contexts=args.store_contexts,
@@ -404,7 +467,7 @@ def main() -> None:
             attack_trials = run_backdoor(
                 pipeline,
                 golden_rows,
-                detector=detector,
+                leak_check=leak_check,
                 trigger=args.trigger,
                 secret_value=args.backdoor_secret,
                 query_fn=backdoor_query_fn,
@@ -435,7 +498,7 @@ def main() -> None:
                 golden_rows,
                 index_path,
                 embedder=embedder,
-                detector=detector,
+                leak_check=leak_check,
                 rng=rng_np,
                 iterations=max(1, args.secret_iters),
                 n_clusters=max(2, args.secret_clusters),
@@ -464,6 +527,8 @@ def main() -> None:
                 "secret_iters": args.secret_iters,
                 "secret_lite": args.secret_lite,
                 "leak_mode": args.leak_mode,
+                "attack_leak_target": args.attack_leak_target,
+                "s_priv_config": str(sp_path.resolve()) if sp_path is not None else None,
                 "trigger": args.trigger if args.attack == "backdoor" else None,
                 "backdoor_secret": args.backdoor_secret if args.attack == "backdoor" else None,
                 "backdoor_runtime_inject": args.backdoor_runtime_inject,
@@ -484,6 +549,9 @@ def main() -> None:
                 "asr": asr,
                 "fpr": fpr,
                 "bpd": bpd,
+                "bpd_legit_questions_only": bpd_legit,
+                "benign_s_priv_leak_rate_baseline": benign_s_priv_rate_orig,
+                "benign_s_priv_leak_rate_defended": benign_s_priv_rate_def,
                 "latency_overhead_ms": lat_oh,
                 "stage_pass_rates": {str(k): v for k, v in stub_stage_rates.items()},
                 "stage_correlations": {},
@@ -491,10 +559,16 @@ def main() -> None:
                 "kappa": kappa_val,
                 "benign_baseline": {
                     "mean_quality": float(sum(score_orig) / len(score_orig)) if score_orig else 0.0,
+                    "mean_quality_legit_only": float(sum(score_o_legit) / len(score_o_legit))
+                    if score_o_legit
+                    else 0.0,
                     "mean_latency_ms": float(sum(lat_orig) / len(lat_orig)) if lat_orig else 0.0,
                 },
                 "benign_defended": {
                     "mean_quality": float(sum(score_def) / len(score_def)) if score_def else 0.0,
+                    "mean_quality_legit_only": float(sum(score_d_legit) / len(score_d_legit))
+                    if score_d_legit
+                    else 0.0,
                     "mean_latency_ms": float(sum(lat_def) / len(lat_def)) if lat_def else 0.0,
                 },
             },

@@ -65,6 +65,15 @@ def make_segmenter_llm() -> LLMClient:
 def make_judge_llm() -> LLMClient:
     """Судья для LeakDetector (JUDGE): env ATTACK_JUDGE / GEMINI, иначе как VERIFIER."""
     mode = (os.environ.get("ATTACK_JUDGE_PROVIDER") or "").strip().lower()
+    if mode in ("ollama", "llama", "local"):
+        m = (
+            os.environ.get("ATTACK_JUDGE_MODEL")
+            or os.environ.get("RAGAS_OLLAMA_MODEL")
+            or os.environ.get("OLLAMA_MODEL")
+            or "llama3.1"
+        )
+        host = os.environ.get("ATTACK_JUDGE_OLLAMA_HOST") or os.environ.get("OLLAMA_HOST")
+        return OllamaLLM(model=m, host=host)
     if mode == "openai" and os.environ.get("OPENAI_API_KEY"):
         m = os.environ.get("ATTACK_JUDGE_MODEL") or "gpt-4o-mini"
         return OpenAICompatLLM(model=m, base_url=os.environ.get("OPENAI_BASE_URL"), api_key=os.environ.get("OPENAI_API_KEY"))

@@ -51,7 +51,7 @@
 │   ├── corpus/                   # базовый вымышленный корпус (.md)
 │   ├── corpus_wikipedia/         # 200–500 статей Wikipedia (в .gitignore)
 │   ├── corpus_merged/            # объединённый корпус для индексации
-│   ├── golden_qa.json            # 30 пар (вопрос, эталонный ответ) для baseline-качества и ASR
+│   ├── golden_qa.json            # 36 пар (вопрос, эталонный ответ) для baseline-качества и ASR
 │   ├── benign_training.json      # ~50 «фоновых» вопросов для калибровки θ_1 IRD
 │   ├── leak_patterns.yaml        # regex-паттерны для Output Leak Scanner
 │   ├── index/                    # чистый Qdrant-индекс (в .gitignore)

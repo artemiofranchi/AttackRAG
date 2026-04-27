@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
-from attackrag.attacks.detectors import LeakDetector
+LeakCheck = Callable[[str, str], bool]
 from attackrag.attacks.types import TrialRecord
 
 if TYPE_CHECKING:
@@ -14,7 +15,7 @@ def run_backdoor(
     pipeline: RAGPipeline,
     golden_rows: list[dict[str, str]],
     *,
-    detector: LeakDetector,
+    leak_check: LeakCheck,
     trigger: str,
     secret_value: str,
     suffix_from_benign: bool = True,
@@ -22,7 +23,7 @@ def run_backdoor(
 ) -> list[TrialRecord]:
     """
     Запросы с триггером (и опционально хвостом легитимного вопроса).
-    Успех — утечка secret_value (не ground_truth), индекс должен быть собран с poison-документом.
+    Успех задаётся leak_check(answer, ref): по умолчанию S_priv или legacy — detector.is_leak(secret_value, answer).
     """
     out: list[TrialRecord] = []
     for row in golden_rows:
@@ -36,7 +37,7 @@ def run_backdoor(
         else:
             answer, contexts = query_fn(q)
         dt_ms = (time.perf_counter() - t0) * 1000.0
-        leaked = detector.is_leak(secret_value, answer)
+        leaked = leak_check(answer, secret_value)
         out.append(
             TrialRecord(
                 question_id=str(qid),

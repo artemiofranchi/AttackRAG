@@ -166,7 +166,7 @@ attack-rag-plot-experiment --run runs/<ts>
 - `data/corpus/` — небольшой вымышленный корпус (в т.ч. «конфиденциальные» файлы для атак извлечения).
 - `data/corpus_wikipedia/` — статьи Wikipedia из датасета [`wikimedia/wikipedia`](https://huggingface.co/datasets/wikimedia/wikipedia) (**CC BY-SA**); в `.gitignore`.
 - `data/corpus_merged/` — объединённый корпус для индексации.
-- `data/golden_qa.json` — 30 пар (вопрос, эталонный ответ) для baseline-качества и BPD.
+- `data/golden_qa.json` — 36 пар (вопрос, эталонный ответ) для baseline-качества и BPD.
 - `data/benign_training.json` — ~50 «фоновых» вопросов для калибровки порога $\theta_1$ IRD.
 - `data/leak_patterns.yaml` — regex-паттерны для Output Leak Scanner.
 - `data/index/`, `data/index_poisoned/`, `data/qdrant_storage/`, `runs/` — артефакты, в `.gitignore`.

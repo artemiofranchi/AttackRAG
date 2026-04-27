@@ -24,11 +24,13 @@ src/attackrag/attacks/build_poisoned_index.py
 src/attackrag/attacks/corpus_poison.py
 src/attackrag/attacks/defense.py
 src/attackrag/attacks/detectors.py
+src/attackrag/attacks/golden_roles.py
 src/attackrag/attacks/guards.py
 src/attackrag/attacks/index_chunks.py
 src/attackrag/attacks/metrics.py
 src/attackrag/attacks/prompt_injection.py
 src/attackrag/attacks/provenance.py
+src/attackrag/attacks/s_priv.py
 src/attackrag/attacks/secret.py
 src/attackrag/attacks/secret_lite.py
 src/attackrag/attacks/types.py

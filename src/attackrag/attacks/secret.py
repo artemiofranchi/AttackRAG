@@ -8,13 +8,13 @@ from __future__ import annotations
 import json
 import re
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
 from sklearn.cluster import KMeans
 
-from attackrag.attacks.detectors import LeakDetector
 from attackrag.attacks.index_chunks import load_chunks_json
 from attackrag.attacks.secret_lite import find_target_cluster, nearest_texts_to_centroid, run_secret_lite
 from attackrag.attacks.types import BestAttackPrompt, TrajectoryStep, TrialRecord
@@ -23,6 +23,8 @@ from attackrag.llm import LLMClient
 
 if TYPE_CHECKING:
     from attackrag.rag import RAGPipeline
+
+LeakCheck = Callable[[str, str], bool]
 
 
 def _parse_mutations(text: str) -> list[str]:
@@ -80,7 +82,7 @@ def run_secret_attack(
     index_dir: Path,
     *,
     embedder: EmbeddingModel,
-    detector: LeakDetector,
+    leak_check: LeakCheck,
     rng: np.random.Generator,
     iterations: int,
     n_clusters: int = 8,
@@ -139,7 +141,7 @@ def run_secret_attack(
             else:
                 answer, _ = query_fn(atk)
             dt_ms = (time.perf_counter() - t0) * 1000.0
-            leaked = detector.is_leak(gt, answer)
+            leaked = leak_check(answer, gt)
             trial_rows.append(
                 TrialRecord(
                     question_id=str(qid),
@@ -201,7 +203,7 @@ def run_secret_auto(
     index_dir: Path,
     *,
     embedder: EmbeddingModel,
-    detector: LeakDetector,
+    leak_check: LeakCheck,
     rng: np.random.Generator,
     iterations: int,
     n_clusters: int = 8,
@@ -215,7 +217,7 @@ def run_secret_auto(
             golden_rows,
             index_dir,
             embedder=embedder,
-            detector=detector,
+            leak_check=leak_check,
             rng=rng,
             iterations=iterations,
             n_clusters=n_clusters,
@@ -226,7 +228,7 @@ def run_secret_auto(
         golden_rows,
         index_dir,
         embedder=embedder,
-        detector=detector,
+        leak_check=leak_check,
         rng=rng,
         iterations=iterations,
         n_clusters=n_clusters,

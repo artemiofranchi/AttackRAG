@@ -82,6 +82,18 @@ def main() -> None:
         action="store_true",
         help="Проброс: упрощённый SECRET (можно вместе с --smoke).",
     )
+    p.add_argument(
+        "--attack-leak-target",
+        choices=["s-priv", "ground-truth"],
+        default="s-priv",
+        help="Проброс в run_attacks: критерий успеха атаки (по умолчанию S_priv).",
+    )
+    p.add_argument(
+        "--s-priv-config",
+        type=Path,
+        default=None,
+        help="Проброс: YAML с literals/regexes для S_priv (иначе data/s_priv.yaml при наличии).",
+    )
     args = p.parse_args()
 
     root = repo_root()
@@ -170,6 +182,9 @@ def main() -> None:
                     )
                     if args.smoke or args.secret_lite:
                         run_py.append("--secret-lite")
+                run_py.extend(["--attack-leak-target", args.attack_leak_target])
+                if args.s_priv_config is not None:
+                    run_py.extend(["--s-priv-config", str(args.s_priv_config)])
 
                 log_path = out / "logs" / f"{profile}__{attack}__s{seed}.log"
                 r = subprocess.run(run_py, cwd=str(root), capture_output=True, text=True)
@@ -214,6 +229,7 @@ def main() -> None:
         "trials": trials,
         "secret_iters": secret_iters,
         "secret_clusters": secret_clusters,
+        "attack_leak_target": args.attack_leak_target,
         "rows": rows,
         "status": "ok" if max_rc == 0 else "error",
     }

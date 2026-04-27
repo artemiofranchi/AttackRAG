@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
-from attackrag.attacks.detectors import LeakDetector
+LeakCheck = Callable[[str, str], bool]
 from attackrag.attacks.types import BestAttackPrompt, TrajectoryStep, TrialRecord
 
 if TYPE_CHECKING:
@@ -43,7 +44,7 @@ def run_prompt_injection(
     pipeline: RAGPipeline,
     golden_rows: list[dict[str, str]],
     *,
-    detector: LeakDetector,
+    leak_check: LeakCheck,
     rng,
     trials: int,
     store_contexts: bool = False,
@@ -69,7 +70,7 @@ def run_prompt_injection(
             else:
                 answer, contexts = query_fn(atk)
             dt_ms = (time.perf_counter() - t0) * 1000.0
-            leaked = detector.is_leak(gt, answer)
+            leaked = leak_check(answer, gt)
             local_leaks.append(leaked)
             trial_rows.append(
                 TrialRecord(

@@ -120,4 +120,6 @@ class IRDDetector:
         self._q_calib = scores
         if not scores:
             return
-        self.threshold = float(np.quantile(scores, quantile))
+        q = float(np.quantile(scores, quantile))
+        # HARDCascade: pass stage1 iff h1 < threshold (strict). q==0 ⇒ никогда не проходит.
+        self.threshold = max(0.05, min(0.95, q))
