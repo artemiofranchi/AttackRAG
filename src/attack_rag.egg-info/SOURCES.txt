@@ -67,5 +67,9 @@ src/attackrag/vector_stores/numpy_store.py
 src/attackrag/vector_stores/protocol.py
 src/attackrag/vector_stores/qdrant_store.py
 src/attackrag/vector_stores/types.py
+tests/test_cached_llm.py
 tests/test_defenses_unit.py
 tests/test_metrics_unit.py
+tests/test_risk_budget.py
+tests/test_tcr_persistence.py
+tests/test_threat_model_unit.py

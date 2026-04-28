@@ -1,5 +1,6 @@
-#!/usr/bin/env bash
-# Плоский снимок data/corpus + data/corpus_wikipedia → baseline Qdrant + poisoned Qdrant,
+# Локальный Qdrant в каталоге держит один процесс на index/qdrant_storage; параллельные
+# прогоны на тех же путях дают AlreadyLocked. Либо не пересекать процессы, либо:
+#   ATTACKRAG_QDRANT_ISOLATE_COPY=1 ./scripts/rebuild_indexes_run_hard.sh
 # затем только эксперимент атак × профиль защиты hard (без RAGAS, без других профилей).
 #
 # Из корня репозитория; .env с LLM; Qdrant доступен.

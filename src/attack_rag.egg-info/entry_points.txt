@@ -6,7 +6,6 @@ attack-rag-experiment = attackrag.cli.run_experiment:main
 attack-rag-fetch-wikipedia = attackrag.cli.corpus.fetch_wikipedia:main
 attack-rag-plot-attacks = attackrag.cli.plot_attacks:main
 attack-rag-plot-metrics = attackrag.cli.plot_metrics:main
-attack-rag-run-attack-suite = attackrag.cli.run_attack_suite:main
 attack-rag-run-attacks = attackrag.cli.run_attacks:main
 attack-rag-run-ragas = attackrag.cli.run_ragas:main
 attack-rag-ui = attackrag.cli.ui:main

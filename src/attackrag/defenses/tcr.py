@@ -63,10 +63,22 @@ class TopicConsistentReranker:
         self._kmeans = km
         self._centroids = km.cluster_centers_.astype(np.float32, copy=False)
         self._topic_by_id = {c.chunk_id: int(lab[i]) for i, c in enumerate(chunks)}
-        self._chunk_emb_by_id = {c.chunk_id: X[i] for i, c in enumerate(chunks)}
+        # Сохраняем нормализованные эмбеддинги — `anom_score` использует
+        # cosine-distance до центроида, для неё нормализация удобнее.
+        self._chunk_emb_by_id = {
+            c.chunk_id: np.asarray(X[i], dtype=np.float32) for i, c in enumerate(chunks)
+        }
         self._fitted = True
 
     def save(self, index_dir: Path) -> None:
+        """Сохраняет TCR-мету (kmeans-центроиды + назначения) в `tcr_meta.json`,
+        а эмбеддинги чанков — в бинарный `tcr_chunk_emb.npz` рядом (массив 5900×384
+        в JSON неэффективен по объёму и парсингу).
+
+        Без сохранения эмбеддингов `load()` восстанавливал пустой
+        `_chunk_emb_by_id`, и `anom_score` всегда возвращал 0 — Stage 2
+        каскада становилась слепой (план, пункт 2.5 разбора).
+        """
         if not self._fitted or self._centroids is None:
             return
         p = index_dir / "tcr_meta.json"
@@ -77,6 +89,11 @@ class TopicConsistentReranker:
             embedding_model=self._embedder.model_name,
         )
         p.write_text(json.dumps(asdict(m), ensure_ascii=False, indent=2), encoding="utf-8")
+        # Бинарный кэш эмбеддингов: ids[N], emb[N, D]
+        if self._chunk_emb_by_id:
+            ids = list(self._chunk_emb_by_id.keys())
+            mat = np.stack([self._chunk_emb_by_id[i] for i in ids], axis=0).astype(np.float32, copy=False)
+            np.savez(index_dir / "tcr_chunk_emb.npz", ids=np.array(ids, dtype=object), emb=mat)
 
     @classmethod
     def load(cls, index_dir: Path, embedder: EmbeddingModel) -> TopicConsistentReranker:
@@ -85,7 +102,36 @@ class TopicConsistentReranker:
         t = cls(embedder, k_topics=m.k_topics)
         t._centroids = np.array(m.centroids, dtype=np.float32)
         t._topic_by_id = {**m.topic_by_chunk_id}
-        t._chunk_emb_by_id = {}
+        # 1. Пытаемся загрузить кэш эмбеддингов рядом с tcr_meta.json.
+        emb_p = index_dir / "tcr_chunk_emb.npz"
+        loaded: dict[str, np.ndarray] = {}
+        if emb_p.is_file():
+            data = np.load(emb_p, allow_pickle=True)
+            ids = list(data["ids"].tolist())
+            mat = np.asarray(data["emb"], dtype=np.float32)
+            for i, cid in enumerate(ids):
+                loaded[str(cid)] = mat[i]
+        # 2. Если кэша нет — пересчитываем эмбеддинги по `chunks.json` индекса.
+        #    Это медленнее, но гарантирует, что `anom_score` не вернёт 0
+        #    («Stage 2 слепнет после load» — баг п. 2.5 предыдущего разбора).
+        if not loaded:
+            try:
+                from attackrag.attacks.index_chunks import load_chunks_json
+                chunks = load_chunks_json(index_dir)
+                if chunks:
+                    texts = [c.text for c in chunks]
+                    X = embedder.encode(texts)
+                    loaded = {
+                        c.chunk_id: np.asarray(X[i], dtype=np.float32)
+                        for i, c in enumerate(chunks)
+                    }
+                    # Раз пересчитали — сохраним кэш на будущее.
+                    ids = list(loaded.keys())
+                    mat = np.stack([loaded[i] for i in ids], axis=0).astype(np.float32, copy=False)
+                    np.savez(index_dir / "tcr_chunk_emb.npz", ids=np.array(ids, dtype=object), emb=mat)
+            except Exception:  # noqa: BLE001 — best-effort; при неудаче падаем в исходное поведение
+                loaded = {}
+        t._chunk_emb_by_id = loaded
         t._fitted = True
         t._kmeans = None
         return t

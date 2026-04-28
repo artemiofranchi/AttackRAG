@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # RAGAS по golden + полная сетка эксперимента (профили × атаки × сиды) без сборки индексов.
-# Используйте после full_repro_pipeline.sh или если data/index и data/index_poisoned уже готовы.
+# Используйте после full_repro_pipeline.sh или если data/index (и при необходимости backdoor — data/index_poisoned) уже готовы.
 #
 # Из корня репозитория; .env с LLM; Qdrant должен быть доступен с теми же коллекциями, что при сборке индексов.
 #
@@ -42,11 +42,14 @@ if [[ "${SKIP_INDEX_CHECK:-0}" != "1" ]]; then
     echo "Ошибка: нет ${INDEX}/chunks.json — сначала соберите baseline-индекс (build_index)." >&2
     exit 1
   fi
-  if [[ ! -f "${INDEX_POISONED}/chunks.json" ]]; then
+  # Отравленный индекс нужен только для атаки backdoor (без --backdoor-runtime-inject).
+  _attacks_pad=",${ATTACKS},"
+  if [[ "${_attacks_pad}" == *",backdoor,"* ]] && [[ ! -f "${INDEX_POISONED}/chunks.json" ]]; then
     echo "Ошибка: нет ${INDEX_POISONED}/chunks.json — нужен отравленный индекс для backdoor (run_attacks --only-build-poison-index)." >&2
     exit 1
   fi
 fi
+unset _attacks_pad
 
 echo "==> OUT_DIR=$OUT_DIR"
 echo "==> INDEX=$INDEX"

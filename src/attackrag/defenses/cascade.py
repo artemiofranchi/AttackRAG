@@ -17,6 +17,14 @@ from attackrag.rag import RAGPipeline
 
 @dataclass
 class CascadeConfig:
+    """Конфигурация HARDCascade. Дефолты — из `tab:experiment_params` (§3 формализации).
+
+    `λ_1 = 0` (стадия 1 не получает риск); `λ_2 = λ_3 = λ_4 = 0.3` — формула
+    Risk-Budget Propagation `θ_i(q) = θ_i⁽⁰⁾ - λ_i · r` (см. `eq:risk_budget`,
+    §2.3.4). Раньше тут стояло 0.1 — слишком мягко, эффект адаптивных порогов
+    был незаметен между профилями `hard-static` и `hard`.
+    """
+
     enable_stage1: bool = True
     enable_stage2: bool = True
     enable_stage3: bool = True
@@ -43,6 +51,7 @@ class HARDCascade:
         pipeline: RAGPipeline,
         *,
         blocked_text: str = "Content blocked by HARD policy",
+        robust_prefix: str | None = None,
     ) -> None:
         self._cfg = config
         self._ird = ird
@@ -51,6 +60,8 @@ class HARDCascade:
         self._scanner = scanner
         self._pipe = pipeline
         self._blocked = blocked_text
+        rp = (robust_prefix or "").strip()
+        self._robust_prefix: str | None = rp or None
 
     def query(self, q: str) -> dict[str, Any]:
         t0 = time.perf_counter()
@@ -101,7 +112,7 @@ class HARDCascade:
             eff[2] = t2
             hits_f = [h for h in hits if self._tcr.anom_score(h.chunk_id) <= t2]
             if not hits_f and hits:
-                hits_f = hits[:1]
+                hits_f = hits[:3]
             hits = hits_f
             h2 = self._tcr.context_anom(hits)
         else:
@@ -113,7 +124,8 @@ class HARDCascade:
             r_acc += min(h2 / max(t2, 1e-6), 1.0)
 
         ctx = [h.text for h in hits]
-        draft = self._pipe.generate(q, ctx)
+        q_gen = f"{self._robust_prefix}\n\n{q}" if self._robust_prefix else q
+        draft = self._pipe.generate(q_gen, ctx)
         if cfg.enable_stage3:
             vr = self._verifier.verify(q, ctx, draft)
             h3 = float(vr.score)

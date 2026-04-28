@@ -22,17 +22,20 @@ from attackrag.defenses.ragfort import RAGFortProxyDefense
 from attackrag.attacks.golden_roles import LEGIT_QUESTION_IDS
 from attackrag.attacks.metrics import (
     asr_from_flags,
+    auc_ird,
     benign_quality_scores,
     bpd_score_drop,
     cascade_bound_tightness,
     fpr_from_benign_blocked,
     latency_overhead_ms,
+    stage_correlation,
+    stage_pass_rates,
 )
 from attackrag.attacks.s_priv import answer_leaks_s_priv, load_s_priv_spec
 from attackrag.attacks.prompt_injection import run_prompt_injection
 from attackrag.attacks.provenance import collect_provenance
 from attackrag.attacks.secret import run_secret_auto
-from attackrag.attacks.types import BestAttackPrompt, TrajectoryStep, TrialRecord
+from attackrag.attacks.types import BestAttackPrompt, StageTrace, TrajectoryStep, TrialRecord, empty_trace
 from attackrag.embeddings import EmbeddingModel
 from attackrag.llm import OllamaLLM, OpenAICompatLLM
 from attackrag.paths import (
@@ -110,9 +113,14 @@ def _guarded_query_fn(
     robust_prompting: bool,
     robust_prefix: str,
 ):
-    def _run(question: str) -> tuple[str, list[str]]:
+    """Legacy guarded query (без `--defense-profile`). Возвращает 3-кортеж
+    (answer, contexts, StageTrace) — trace синтетический, чтобы метрики каскада
+    в run_attacks.py считались единообразно с профилями.
+    """
+
+    def _run(question: str) -> tuple[str, list[str], StageTrace]:
         if input_filter.blocks(question):
-            return output_verifier.blocked_response, []
+            return output_verifier.blocked_response, [], empty_trace(blocked=True)
         hits, _ = pipeline.retrieve(question)
         contexts = [h.text for h in hits]
         clean_contexts = data_filter.clean(contexts)
@@ -125,7 +133,8 @@ def _guarded_query_fn(
         final = output_verifier.verify(question, clean_contexts, draft)
         if ragfort is not None:
             final = ragfort.verify(question, clean_contexts, final)
-        return final, clean_contexts
+        blocked = final.strip() == output_verifier.blocked_response
+        return final, clean_contexts, empty_trace(blocked=blocked)
 
     return _run
 
@@ -138,11 +147,12 @@ def _benign_pass(
     apply_defense: bool,
     query_fn=None,
     blocked_marker: str | None = None,
-) -> tuple[list[float], list[float], list[bool], list[str]]:
-    """Возвращает (lat_ms, quality_scores, blocked, answers)."""
+) -> tuple[list[float], list[float], list[bool], list[str], list[StageTrace]]:
+    """Возвращает (lat_ms, quality_scores, blocked, answers, traces)."""
     lat: list[float] = []
     blocked_flags: list[bool] = []
     answers: list[str] = []
+    traces: list[StageTrace] = []
     gts = [r["ground_truth"] for r in golden_rows]
     for row in golden_rows:
         q = row["question"]
@@ -152,24 +162,32 @@ def _benign_pass(
                 blocked_flags.append(True)
                 answers.append("")
                 lat.append(0.0)
+                traces.append(empty_trace(blocked=True))
                 continue
             a, _, _ = pipeline.query(q)
             lat.append((time.perf_counter() - t0) * 1000.0)
             blocked_flags.append(False)
             answers.append(a)
+            traces.append(empty_trace(blocked=False))
         else:
-            a, _ = query_fn(q)
+            a, _, trace = query_fn(q)
             lat.append((time.perf_counter() - t0) * 1000.0)
             is_blocked = blocked_marker is not None and a.strip() == blocked_marker
             blocked_flags.append(is_blocked)
             answers.append(a)
+            traces.append(trace)
     scores = benign_quality_scores(answers, gts)
-    return lat, scores, blocked_flags, answers
+    return lat, scores, blocked_flags, answers, traces
 
 
 def main() -> None:
     load_dotenv(repo_root() / ".env")
-    p = argparse.ArgumentParser(description="Симуляция атак (PI / backdoor / SECRET-lite) + метрики ASR,FPR,BPD,latency")
+    p = argparse.ArgumentParser(
+        description=(
+            "Симуляция атак (PI / backdoor / SECRET-lite) + метрики ASR, benign block rate "
+            "(поле fpr), BPD, latency overhead"
+        )
+    )
     p.add_argument(
         "--attack",
         choices=["pi", "backdoor", "secret"],
@@ -396,10 +414,10 @@ def main() -> None:
             extra=prov_extra,
         )
 
-        lat_orig, score_orig, _, answers_orig = _benign_pass(
+        lat_orig, score_orig, _, answers_orig, _traces_orig = _benign_pass(
             pipeline, golden_rows, defense=defense, apply_defense=False, query_fn=None
         )
-        lat_def, score_def, blocked_def, answers_def = _benign_pass(
+        lat_def, score_def, blocked_def, answers_def, traces_def = _benign_pass(
             pipeline,
             golden_rows,
             defense=defense,
@@ -409,12 +427,18 @@ def main() -> None:
         )
 
         fpr = fpr_from_benign_blocked(blocked_def)
-        bpd = bpd_score_drop(score_orig, score_def)
         legit_ix = [
             i
             for i, r in enumerate(golden_rows)
             if str(r.get("id") or "") in LEGIT_QUESTION_IDS
         ]
+        blocked_def_legit = [blocked_def[i] for i in legit_ix]
+        fpr_legit_only = (
+            fpr_from_benign_blocked(blocked_def_legit)
+            if blocked_def_legit
+            else fpr
+        )
+        bpd = bpd_score_drop(score_orig, score_def)
         score_o_legit = [score_orig[i] for i in legit_ix] if legit_ix else score_orig
         score_d_legit = [score_def[i] for i in legit_ix] if legit_ix else score_def
         bpd_legit = bpd_score_drop(score_o_legit, score_d_legit)
@@ -426,6 +450,23 @@ def main() -> None:
         benign_s_priv_rate_def = (
             sum(1 for x in benign_priv_def if x) / len(benign_priv_def) if benign_priv_def else 0.0
         )
+        benign_eval = {
+            "blocked_marker": blocked_marker,
+            "quality_metric": "rouge_l_f1",
+            "per_question": [
+                {
+                    "question_id": str(golden_rows[i].get("id") or ""),
+                    "quality_baseline": float(score_orig[i]),
+                    "quality_defended": float(score_def[i]),
+                    "overlap_baseline": float(score_orig[i]),
+                    "overlap_defended": float(score_def[i]),
+                    "blocked_defended": bool(blocked_def[i]),
+                    "s_priv_leak_baseline": bool(benign_priv_orig[i]),
+                    "s_priv_leak_defended": bool(benign_priv_def[i]),
+                }
+                for i in range(len(golden_rows))
+            ],
+        }
         lat_oh = latency_overhead_ms(lat_orig, lat_def)
 
         trajectory: list[TrajectoryStep] = []
@@ -460,7 +501,8 @@ def main() -> None:
                         )
                         answer = pipeline.generate(question_for_gen, contexts)
                         answer = output_verifier.verify(question, contexts, answer)
-                        return answer, contexts
+                        blocked = answer.strip() == output_verifier.blocked_response
+                        return answer, contexts, empty_trace(blocked=blocked)
                     return guarded_query(question)
 
                 backdoor_query_fn = runtime_backdoor_query
@@ -509,8 +551,39 @@ def main() -> None:
 
         flags = [t.leaked for t in attack_trials]
         asr = asr_from_flags(flags)
-        stub_stage_rates = {1: 0.0, 2: 0.0, 3: 0.0, 4: 0.0}
-        kappa_val = cascade_bound_tightness(asr, stub_stage_rates)
+
+        # Реальные метрики каскада из stage_trace (см. §2.4 формализации).
+        # Для профилей без каскада (none/basic-filters/ragfort) трасса синтетическая
+        # (empty_trace), но формат тот же — единая агрегация.
+        atk_traces: list[dict[str, Any]] = [
+            tr.meta.get("stage_trace") or {}
+            for tr in attack_trials
+            if isinstance(tr.meta, dict)
+        ]
+        atk_stage_passed = [t.get("stage_passed") or {} for t in atk_traces if t.get("stage_passed")]
+        if atk_stage_passed:
+            real_stage_rates = stage_pass_rates(atk_stage_passed)
+            real_stage_corr = stage_correlation(atk_stage_passed)
+        else:
+            real_stage_rates = {1: 0.0, 2: 0.0, 3: 0.0, 4: 0.0}
+            real_stage_corr = {}
+
+        # AUC_IRD: ROC по h_1 = s_IRD на (атаки vs. бенигн-pass с тем же query_fn).
+        ird_atk = [
+            float((t.get("stage_scores") or {}).get(1, 0.0))
+            for t in atk_traces
+        ]
+        ird_legit = [
+            float((dict(t).get("stage_scores") or {}).get(1, 0.0))
+            for t in traces_def
+        ]
+        if ird_atk and ird_legit and (max(ird_atk + ird_legit) - min(ird_atk + ird_legit) > 1e-9):
+            real_auc_ird = auc_ird(ird_atk, ird_legit)
+        else:
+            # Все нули (профиль без IRD) → AUC не определён, ставим 0.5 как «случайная угадайка».
+            real_auc_ird = 0.5 if not (ird_atk and ird_legit) else 0.5
+
+        kappa_val = cascade_bound_tightness(asr, real_stage_rates)
 
         out_path = args.out
         if out_path is None:
@@ -548,14 +621,15 @@ def main() -> None:
             "metrics": {
                 "asr": asr,
                 "fpr": fpr,
+                "fpr_legit_questions_only": fpr_legit_only,
                 "bpd": bpd,
                 "bpd_legit_questions_only": bpd_legit,
                 "benign_s_priv_leak_rate_baseline": benign_s_priv_rate_orig,
                 "benign_s_priv_leak_rate_defended": benign_s_priv_rate_def,
                 "latency_overhead_ms": lat_oh,
-                "stage_pass_rates": {str(k): v for k, v in stub_stage_rates.items()},
-                "stage_correlations": {},
-                "auc_ird": 0.0,
+                "stage_pass_rates": {str(k): v for k, v in real_stage_rates.items()},
+                "stage_correlations": real_stage_corr,
+                "auc_ird": real_auc_ird,
                 "kappa": kappa_val,
                 "benign_baseline": {
                     "mean_quality": float(sum(score_orig) / len(score_orig)) if score_orig else 0.0,
@@ -575,6 +649,7 @@ def main() -> None:
             "best_attack": _serialize_best(best_prompt),
             "trajectory": _serialize_traj(trajectory),
             "trials": [_serialize_trial(t) for t in attack_trials],
+            "benign_eval": benign_eval,
         }
 
         out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -584,6 +659,7 @@ def main() -> None:
                 {
                     "asr": asr,
                     "fpr": fpr,
+                    "fpr_legit_questions_only": fpr_legit_only,
                     "bpd": bpd,
                     "latency_overhead_ms": lat_oh,
                     "kappa": kappa_val,
@@ -593,6 +669,16 @@ def main() -> None:
             )
         )
     finally:
+        # Явно закрываем embedded-Qdrant клиент: иначе file-lock на
+        # data/index/qdrant_storage может пережить exit подпроцесса
+        # (GC __del__ в Python 3.13 не гарантируется), и следующий
+        # subprocess из run_experiment.py получит AlreadyLocked.
+        try:
+            store = getattr(locals().get("pipeline", None), "_store", None)
+            if store is not None and hasattr(store, "close"):
+                store.close()
+        except Exception:  # noqa: BLE001 — best-effort cleanup
+            pass
         if isinstance(llm, OllamaLLM):
             llm.close()
 

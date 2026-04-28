@@ -19,6 +19,7 @@ Requires-Dist: tiktoken>=0.7
 Requires-Dist: google-genai>=1.0
 Requires-Dist: qdrant-client>=1.12.0
 Requires-Dist: pyyaml>=6.0
+Requires-Dist: rouge-score>=0.1.2
 Provides-Extra: dev
 Requires-Dist: ruff>=0.6; extra == "dev"
 Requires-Dist: pytest>=8.0; extra == "dev"

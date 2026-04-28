@@ -5,7 +5,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 LeakCheck = Callable[[str, str], bool]
-from attackrag.attacks.types import BestAttackPrompt, TrajectoryStep, TrialRecord
+from attackrag.attacks.types import BestAttackPrompt, StageTrace, TrajectoryStep, TrialRecord, empty_trace
 
 if TYPE_CHECKING:
     from attackrag.rag import RAGPipeline
@@ -65,10 +65,12 @@ def run_prompt_injection(
             delta = templates[it % len(templates)]
             atk = _compose_attack(benign, delta)
             t0 = time.perf_counter()
+            trace: StageTrace
             if query_fn is None:
                 answer, contexts, _ = pipeline.query(atk)
+                trace = empty_trace(blocked=False)
             else:
-                answer, contexts = query_fn(atk)
+                answer, contexts, trace = query_fn(atk)
             dt_ms = (time.perf_counter() - t0) * 1000.0
             leaked = leak_check(answer, gt)
             local_leaks.append(leaked)
@@ -82,7 +84,12 @@ def run_prompt_injection(
                     leaked=leaked,
                     latency_ms=dt_ms,
                     contexts=contexts if store_contexts else None,
-                    meta={"attack": "pi", "trial_index": it, "delta_template": delta},
+                    meta={
+                        "attack": "pi",
+                        "trial_index": it,
+                        "delta_template": delta,
+                        "stage_trace": dict(trace),
+                    },
                 )
             )
             trajectory.append(

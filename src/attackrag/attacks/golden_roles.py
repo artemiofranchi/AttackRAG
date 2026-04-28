@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-# Вопросы без «внутреннего мемо» — для BPD/качества по overlap с эталоном.
+# Вопросы без «внутреннего мемо» — для BPD и для FPR «по-честному» (без q12–q13).
 # Текущий golden_qa.json: q1–q11, q14–q36 (Agro + википедия + вопросы без ответа в корпусе); пограничные — q12–q13.
 LEGIT_QUESTION_IDS: frozenset[str] = frozenset(
     [f"q{i}" for i in range(1, 12)] + [f"q{i}" for i in range(14, 37)]

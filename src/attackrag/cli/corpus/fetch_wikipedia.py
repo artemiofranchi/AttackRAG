@@ -6,6 +6,37 @@ from pathlib import Path
 
 from datasets import load_dataset
 
+# Подстроки для отбора тематики (ниже — очень широкие корни: «данных», «экономик» и т.д.
+# попадают в львиную долю русских статей; для узкой темы сокращайте список).
+TARGET_KEYWORDS: list[str] = [
+    "api",
+    "saas",
+    "информацион",
+    "программн",
+    "агро",
+    "сельск",
+    "бизнес",
+    "технологи",
+    "данных",
+    "безопасност",
+    "сервис",
+    "интернет",
+    "облачн",
+    "интеграц",
+    "интерфейс",
+    "алгоритм",
+    "приложени",
+    "экономик",
+    "платформ",
+    "сервер",
+    "клиент",
+]
+
+
+def _matches_keywords(title_lower: str, text_lower: str) -> bool:
+    """Подстроковый поиск по ключам (без морфологии)."""
+    return any(kw in title_lower or kw in text_lower for kw in TARGET_KEYWORDS if kw)
+
 
 def _safe_filename(title: str, idx: int) -> str:
     base = (title or "").strip()[:100]
@@ -29,8 +60,18 @@ def stream_wikipedia(
     min_chars: int,
     max_chars_per_doc: int,
     skip_first: int,
+    clear_existing_md: bool = False,
 ) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
+    if clear_existing_md:
+        removed = 0
+        for p in sorted(out_dir.glob("*.md")):
+            p.unlink(missing_ok=True)
+            removed += 1
+        if removed:
+            print(f"Удалено старых .md в каталоге назначения: {removed}")
+    
+    print("Подключение к потоку Википедии... (может занять несколько секунд)")
     ds = load_dataset(
         "wikimedia/wikipedia",
         config,
@@ -46,30 +87,50 @@ def stream_wikipedia(
 
     written = 0
     idx = skip_first
+    scanned = 0
+    
+    print(f"Начинаем поиск {max_docs} тематических статей (IT, Агро, Бизнес)...")
+    
     while written < max_docs:
         try:
             row = next(it)
         except StopIteration:
             break
+        
         idx += 1
+        scanned += 1
+        
         title = str(row.get("title", ""))
         text = str(row.get("text", ""))
         url = str(row.get("url", ""))
+        
         if len(text) < min_chars:
             continue
+            
+        # ФИЛЬТРАЦИЯ ПО ТЕМАТИКЕ
+        text_lower = text.lower()
+        title_lower = title.lower()
+        
+        if not _matches_keywords(title_lower, text_lower):
+            continue  # не по теме
+
+        # Если статья прошла фильтр - сохраняем
         body = _truncate(text, max_chars_per_doc)
         content = f"# {title}\n\nИсточник: {url}\n\n{body}\n"
         path = out_dir / _safe_filename(title, idx)
         path.write_text(content, encoding="utf-8")
         written += 1
+        
+        if written % 50 == 0:
+            print(f"Сохранено {written}/{max_docs} статей (просканировано {scanned}...)")
+            
     return written
 
 
 def main() -> None:
     p = argparse.ArgumentParser(
         description=(
-            "Скачать статьи Википедии через Hugging Face (wikimedia/wikipedia, streaming). "
-            "Это предпочтительнее произвольного парсинга HTML: лицензия CC BY-SA, стабильная схема."
+            "Скачать ТЕМАТИЧЕСКИЕ (IT/Бизнес/Агро) статьи Википедии через Hugging Face. "
         )
     )
     p.add_argument(
@@ -87,7 +148,7 @@ def main() -> None:
     p.add_argument(
         "--min-chars",
         type=int,
-        default=400,
+        default=1000, # Увеличил минимальный размер, чтобы отсеять пустые заготовки
         help="Пропускать слишком короткие статьи",
     )
     p.add_argument(
@@ -100,7 +161,12 @@ def main() -> None:
         "--skip-first",
         type=int,
         default=0,
-        help="Пропустить первые N записей потока (для другой выборки без скачивания всего с начала)",
+        help="Пропустить первые N записей потока",
+    )
+    p.add_argument(
+        "--clear-output-dir",
+        action="store_true",
+        help="Перед скачиванием удалить все *.md в --out (устраняет дубли после прошлых прогонов)",
     )
     args = p.parse_args()
 
@@ -111,8 +177,9 @@ def main() -> None:
         min_chars=args.min_chars,
         max_chars_per_doc=args.max_chars_per_doc,
         skip_first=args.skip_first,
+        clear_existing_md=args.clear_output_dir,
     )
-    print(f"Сохранено статей: {n} -> {args.out.resolve()}")
+    print(f"\nУспех! Сохранено тематических статей: {n} -> {args.out.resolve()}")
 
 
 if __name__ == "__main__":

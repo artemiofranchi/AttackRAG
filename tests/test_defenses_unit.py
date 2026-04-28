@@ -115,3 +115,65 @@ def test_cascade_blocks_high_ird() -> None:
         _Pipe(),  # type: ignore[arg-type]
     ).query("z")
     assert out["blocked_at_stage"] == 1
+
+
+def test_cascade_robust_prefix_applies_only_to_generate() -> None:
+    """IRD/retrieve/TCR получают чистый q; префикс — только в generate (см. profile hard)."""
+    from attackrag.vector_stores.types import RetrievedChunk
+
+    def ret_ids(_q: str, k: int) -> set[str]:
+        return {"same"}
+
+    ird = IRDDetector(ret_ids, _SegStub(["a", "b"]), k_retr=2, threshold=0.99)
+
+    class _TCR:
+        fitted = False
+
+        def rerank(self, q: str, hits):
+            return hits
+
+        def context_anom(self, hits) -> float:
+            return 0.0
+
+        def anom_score(self, _cid: str) -> float:
+            return 0.0
+
+    class _Ver:
+        def verify(self, q: str, contexts: list[str], draft: str):
+            from attackrag.defenses.ragfort import VerifyResult
+
+            return VerifyResult(score=0.0, reason="ok")
+
+    retrieve_q: list[str] = []
+    generate_q: list[str] = []
+
+    class _Pipe:
+        def retrieve(self, q: str):
+            retrieve_q.append(q)
+            return [RetrievedChunk("c", "d", "t", 0.1)], np.zeros(3, dtype=np.float32)
+
+        def generate(self, q: str, ctx: list[str]) -> str:
+            generate_q.append(q)
+            return "y"
+
+    pipe = _Pipe()  # type: ignore[arg-type]
+    HARDCascade(
+        CascadeConfig(
+            theta1_0=0.99,
+            enable_stage2=False,
+            enable_stage3=False,
+            enable_stage4=False,
+            adaptive=False,
+        ),
+        ird,
+        _TCR(),  # type: ignore[arg-type]
+        _Ver(),  # type: ignore[arg-type]
+        LeakScanner(regex_patterns=[]),
+        pipe,
+        robust_prefix="ROBUST_LINE",
+    ).query("user_question")
+
+    assert retrieve_q == ["user_question"]
+    assert len(generate_q) == 1
+    assert generate_q[0].startswith("ROBUST_LINE")
+    assert "user_question" in generate_q[0]

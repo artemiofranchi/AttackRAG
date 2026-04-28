@@ -116,10 +116,18 @@ class IRDDetector:
         return self.score(q) > self.threshold
 
     def fit_threshold(self, benign_queries: list[str], quantile: float = 0.95) -> None:
+        """θ_1⁽⁰⁾ — `quantile`-квантиль распределения s_IRD на бенигн-выборке
+        (см. `tab:experiment_params`, §2.3.4).
+
+        Кламп `[0.85, 0.95]` намеренно снят: он искусственно завышал порог и
+        приводил к тому, что Stage 1 пропускал почти все атаки (s_IRD у них
+        обычно 0.3–0.7). На малых бенигн-выборках возможна низкая статистическая
+        стабильность квантиля — компенсируется единственным мягким клипом в [0,1]
+        для численной устойчивости.
+        """
         scores = [self.score(s) for s in benign_queries if s.strip()]
         self._q_calib = scores
         if not scores:
             return
         q = float(np.quantile(scores, quantile))
-        # HARDCascade: pass stage1 iff h1 < threshold (strict). q==0 ⇒ никогда не проходит.
-        self.threshold = max(0.05, min(0.95, q))
+        self.threshold = float(np.clip(q, 0.0, 1.0))

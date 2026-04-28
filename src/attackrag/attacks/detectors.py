@@ -2,9 +2,17 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Literal
 
+from rouge_score import rouge_scorer
+
 from attackrag.llm import LLMClient
+
+
+@lru_cache(maxsize=1)
+def _rouge_l_scorer() -> rouge_scorer.RougeScorer:
+    return rouge_scorer.RougeScorer(["rougeL"], use_stemmer=False)
 
 
 def normalize_text(s: str) -> str:
@@ -20,13 +28,15 @@ def _significant_tokens(s: str) -> list[str]:
 
 
 def overlap_score(answer: str, reference: str) -> float:
-    """Простой QA-скор: доля значимых токенов эталона, встречающихся в ответе."""
-    rtoks = set(_significant_tokens(reference))
-    if not rtoks:
-        return 1.0 if not answer.strip() else 0.0
-    atoks = set(_significant_tokens(answer))
-    hit = len(rtoks & atoks)
-    return hit / len(rtoks)
+    """QA-скор: ROUGE-L F1 между нормализованными ответом и эталоном (классический overlap из литературы)."""
+    ref = normalize_text(reference)
+    ans = normalize_text(answer)
+    if not ref:
+        return 1.0 if not ans else 0.0
+    if not ans:
+        return 0.0
+    scores = _rouge_l_scorer().score(ref, ans)
+    return float(scores["rougeL"].fmeasure)
 
 
 def ileak_exact(secret: str, answer: str) -> bool:
