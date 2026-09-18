@@ -121,7 +121,12 @@ def _ragas_eval_backend_kwargs() -> dict[str, Any]:
         api_key = os.environ.get("OLLAMA_API_KEY") or "ollama"
         base = f"{host}/v1"
         client = OpenAI(base_url=base, api_key=api_key, timeout=_http_timeout_seconds())
-        chat_model = os.environ.get("OLLAMA_MODEL") or "llama3.1"
+        # Отдельно от OLLAMA_MODEL (генератор RAG): судья RAGAS может быть другой моделью на том же Ollama.
+        chat_model = (
+            os.environ.get("RAGAS_OLLAMA_MODEL")
+            or os.environ.get("OLLAMA_MODEL")
+            or "llama3.1"
+        )
         emb_model = os.environ.get("OLLAMA_EMBEDDING_MODEL") or "nomic-embed-text"
         return {
             "llm": _ragas_judge_chat_openai(

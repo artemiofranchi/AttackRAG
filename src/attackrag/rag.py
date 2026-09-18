@@ -8,6 +8,7 @@ import numpy as np
 
 from attackrag.embeddings import EmbeddingModel
 from attackrag.llm import LLMClient
+from attackrag.llm_caching import CachedLLM
 from attackrag.reranking import BGEReranker
 from attackrag.vector_stores import load_vector_store
 from attackrag.vector_stores.protocol import VectorStore
@@ -93,7 +94,21 @@ def build_pipeline_from_disk(
     index_dir: str,
     llm: LLMClient,
     config: RAGConfig | None = None,
+    *,
+    cache_generator: bool | None = None,
 ) -> RAGPipeline:
+    """Собирает `RAGPipeline` из индекса. По умолчанию оборачивает GENERATOR
+    в `CachedLLM` (роль = "GENERATOR") — Шаг 2/NFR-3 плана: бенигн-pass
+    (golden QA × 4 профиля) повторно генерируется из кэша, а не Ollama/API.
+
+    Поведение управляется флагом / env:
+      * `cache_generator=True` — принудительно включить кэш.
+      * `cache_generator=False` — отключить (например, тесты отказа от кэша).
+      * `cache_generator=None` (по умолчанию) — читаем `LLM_CACHE_GENERATOR`
+        из окружения; пусто/`1`/`true` ⇒ включено.
+
+    Если `llm` уже обёрнут в `CachedLLM`, повторно не оборачиваем.
+    """
     store = load_vector_store(Path(index_dir))
     base = config or RAGConfig()
     env_top_k = os.environ.get("RAG_TOP_K")
@@ -119,4 +134,17 @@ def build_pipeline_from_disk(
         reranker_batch_size=reranker_batch_size,
     )
     embedder = EmbeddingModel(cfg.embedding_model)
+    if cache_generator is None:
+        env_cache = (os.environ.get("LLM_CACHE_GENERATOR") or "").strip().lower()
+        cache_generator = env_cache != "0" and env_cache != "false" and env_cache != "off"
+    if cache_generator and not isinstance(llm, CachedLLM):
+        # Имя модели в кэш-ключ — чтобы кэш не пересекался между Ollama / Gemini /
+        # OpenAI на одном промпте.
+        model_hint = (
+            getattr(llm, "_model", None)
+            or os.environ.get("OLLAMA_MODEL")
+            or os.environ.get("LLM_MODEL")
+            or type(llm).__name__
+        )
+        llm = CachedLLM(llm, role="GENERATOR", model_hint=str(model_hint))
     return RAGPipeline(store=store, embedder=embedder, llm=llm, config=cfg)

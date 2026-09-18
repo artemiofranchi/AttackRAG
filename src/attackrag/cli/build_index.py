@@ -67,8 +67,13 @@ def main() -> None:
     p.add_argument(
         "--backend",
         choices=list(BACKENDS),
-        default="numpy",
-        help="Хранилище векторов: numpy (прозрачный baseline), faiss, chroma, qdrant",
+        default="qdrant",
+        help="По умолчанию qdrant (см. docker compose / embedded). numpy/faiss/chroma — legacy.",
+    )
+    p.add_argument(
+        "--skip-wiki",
+        action="store_true",
+        help="Не подмешивать Wikipedia: индексируется только --corpus (быстрый dev/smoke).",
     )
     p.add_argument("--max-chars", type=int, default=900)
     p.add_argument("--overlap", type=int, default=120)
@@ -81,8 +86,8 @@ def main() -> None:
     p.add_argument(
         "--wiki-required-docs",
         type=int,
-        default=2000,
-        help="Минимум статей Wikipedia перед сборкой индекса",
+        default=300,
+        help="Минимум статей Wikipedia (игнорируется с --skip-wiki). Рекомендация по диссертации: 200–500.",
     )
     p.add_argument(
         "--wiki-config",
@@ -93,20 +98,24 @@ def main() -> None:
     p.add_argument("--wiki-max-chars-per-doc", type=int, default=14_000)
     args = p.parse_args()
 
-    wiki_count = _ensure_wikipedia_corpus(
-        wiki_dir=args.wiki_corpus,
-        required_docs=args.wiki_required_docs,
-        wiki_config=args.wiki_config,
-        min_chars=args.wiki_min_chars,
-        max_chars_per_doc=args.wiki_max_chars_per_doc,
-    )
-    if wiki_count < args.wiki_required_docs:
-        raise RuntimeError(
-            f"Недостаточно Wikipedia-статей: {wiki_count}/{args.wiki_required_docs}. "
-            "Проверьте интернет/HF доступ и повторите запуск."
+    if args.skip_wiki:
+        wiki_count = 0
+        docs = load_markdown_corpus(args.corpus)
+    else:
+        wiki_count = _ensure_wikipedia_corpus(
+            wiki_dir=args.wiki_corpus,
+            required_docs=args.wiki_required_docs,
+            wiki_config=args.wiki_config,
+            min_chars=args.wiki_min_chars,
+            max_chars_per_doc=args.wiki_max_chars_per_doc,
         )
+        if wiki_count < args.wiki_required_docs:
+            raise RuntimeError(
+                f"Недостаточно Wikipedia-статей: {wiki_count}/{args.wiki_required_docs}. "
+                "Проверьте интернет/HF доступ, уменьшите --wiki-required-docs или используйте --skip-wiki."
+            )
+        docs = _load_merged_docs(args.corpus, args.wiki_corpus)
 
-    docs = _load_merged_docs(args.corpus, args.wiki_corpus)
     chunks = chunk_documents(docs, max_chars=args.max_chars, overlap=args.overlap)
     embedder = EmbeddingModel(args.embedding_model)
     build_vector_store(args.out, chunks, embedder, backend=args.backend)

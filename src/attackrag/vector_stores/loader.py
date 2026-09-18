@@ -59,7 +59,7 @@ def build_vector_store(
     out_dir: Path | str,
     chunks: list[Chunk],
     embedder: EmbeddingModel,
-    backend: BackendName = "numpy",
+    backend: BackendName = "qdrant",
 ) -> None:
     texts = [c.text for c in chunks]
     vectors = embedder.encode(texts)

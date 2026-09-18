@@ -4,6 +4,7 @@ venv/
 __pycache__/
 *.py[cod]
 data/index/
+data/.snapshot_flat_corpus/
 data/corpus_wikipedia/
 data/corpus_merged/
 *.npy

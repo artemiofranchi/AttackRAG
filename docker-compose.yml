@@ -1,0 +1,61 @@
+# Минимальная инфраструктура для воспроизводимого запуска AttackRAG (NFR-2).
+# Контейнеризируем только сторонние демоны (vector store + LLM-runtime) —
+# Python-код проекта, CLI и Streamlit UI запускаются на хосте через venv:
+#   * `attack-rag-experiment ...` — оркестратор (CLI),
+#   * `attack-rag-ui` — Streamlit UI (Configure / Run / Results, FR-10).
+# Это намного быстрее и устойчивее, чем городить рантайм-контейнер с
+# `pip install -e .` (часто страдает от hash-mismatch на arm64 и тратит
+# 5+ минут на каждый рестарт).
+#
+# Сервисы:
+#   * qdrant — векторное хранилище по умолчанию (Step 1.1 плана).
+#   * ollama — локальный LLM-провайдер (опциональный, профиль `local-llm`).
+#
+# Типовые команды:
+#   docker compose up -d qdrant                  # минимум: только Qdrant
+#   docker compose --profile local-llm up -d     # + Ollama
+#   docker compose down                          # остановить всё
+#
+# После запуска Qdrant CLI и UI на хосте ходят к нему через:
+#   export QDRANT_URL=http://localhost:6333
+# (либо оставьте переменную пустой — тогда CLI работает в embedded-режиме
+#  с локальным `data/index/qdrant/`, без Docker).
+
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.12.4
+    container_name: attackrag-qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"  # REST + Web Dashboard (http://localhost:6333/dashboard)
+      - "6334:6334"  # gRPC
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      QDRANT__SERVICE__HTTP_PORT: 6333
+      QDRANT__SERVICE__GRPC_PORT: 6334
+    # Образ qdrant/qdrant — distroless-style, без wget/curl/sh, поэтому
+    # HTTP-healthcheck изнутри невозможен (вечно unhealthy → блокирует
+    # зависимые сервисы). Проверяем готовность снаружи:
+    #     curl -sf http://localhost:6333/readyz
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: attackrag-ollama
+    restart: unless-stopped
+    profiles: ["local-llm"]
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+volumes:
+  qdrant_data:
+    name: attackrag_qdrant_data
+  ollama_data:
+    name: attackrag_ollama_data
